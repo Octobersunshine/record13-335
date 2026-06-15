@@ -10,6 +10,46 @@ class TimeSeriesResampler:
         'ohlc'
     ]
 
+    AGG_METHOD_ALIASES = {
+        'mean': 'mean',
+        'avg': 'mean',
+        'average': 'mean',
+        '均值': 'mean',
+        '平均值': 'mean',
+        'sum': 'sum',
+        'total': 'sum',
+        '总和': 'sum',
+        '累计': 'sum',
+        'max': 'max',
+        'maximum': 'max',
+        '最大值': 'max',
+        '最高': 'max',
+        'min': 'min',
+        'minimum': 'min',
+        '最小值': 'min',
+        '最低': 'min',
+        'last': 'last',
+        '最后': 'last',
+        '最终': 'last',
+        'first': 'first',
+        '首先': 'first',
+        '最初': 'first',
+        'std': 'std',
+        '标准差': 'std',
+        'var': 'var',
+        '方差': 'var',
+        'median': 'median',
+        '中位数': 'median',
+        'count': 'count',
+        '计数': 'count',
+        '数量': 'count',
+        'nunique': 'nunique',
+        '去重计数': 'nunique',
+        '唯一值': 'nunique',
+        'ohlc': 'ohlc',
+        '开高低收': 'ohlc'
+    }
+
     def __init__(
         self,
         time_col: Optional[str] = None,
@@ -121,43 +161,82 @@ class TimeSeriesResampler:
         
         return freq_lower
 
+    def _resolve_agg_alias(self, method: str) -> str:
+        method_lower = method.lower()
+        if method_lower in self.AGG_METHOD_ALIASES:
+            return self.AGG_METHOD_ALIASES[method_lower]
+        if method in self.AGG_METHOD_ALIASES:
+            return self.AGG_METHOD_ALIASES[method]
+        return method
+
     def _get_agg_funcs(
         self,
         agg_method: Union[str, List[str], Dict[str, Any]]
-    ) -> Any:
+    ) -> tuple:
+        column_mapping = {}
+
         if isinstance(agg_method, str):
-            if agg_method not in self.VALID_AGG_METHODS:
+            resolved = self._resolve_agg_alias(agg_method)
+            if resolved not in self.VALID_AGG_METHODS:
                 raise ValueError(
                     f"Invalid aggregation method '{agg_method}'. "
-                    f"Valid methods are: {', '.join(self.VALID_AGG_METHODS)}"
+                    f"Valid methods are: {', '.join(self.VALID_AGG_METHODS)}\n"
+                    f"Aliases: {', '.join(sorted(self.AGG_METHOD_ALIASES.keys()))}"
                 )
-            return agg_method
+            return resolved, column_mapping
         
         if isinstance(agg_method, list):
+            resolved_list = []
             for method in agg_method:
-                if isinstance(method, str) and method not in self.VALID_AGG_METHODS:
-                    raise ValueError(
-                        f"Invalid aggregation method '{method}' in list. "
-                        f"Valid methods are: {', '.join(self.VALID_AGG_METHODS)}"
-                    )
-            return agg_method
+                if isinstance(method, str):
+                    resolved = self._resolve_agg_alias(method)
+                    if resolved not in self.VALID_AGG_METHODS:
+                        raise ValueError(
+                            f"Invalid aggregation method '{method}' in list. "
+                            f"Valid methods are: {', '.join(self.VALID_AGG_METHODS)}\n"
+                            f"Aliases: {', '.join(sorted(self.AGG_METHOD_ALIASES.keys()))}"
+                        )
+                    resolved_list.append(resolved)
+                    if method != resolved:
+                        column_mapping[resolved] = method
+                else:
+                    resolved_list.append(method)
+            return resolved_list, column_mapping
         
         if isinstance(agg_method, dict):
+            resolved_dict = {}
             for col, methods in agg_method.items():
                 if isinstance(methods, str):
-                    if methods not in self.VALID_AGG_METHODS:
+                    resolved = self._resolve_agg_alias(methods)
+                    if resolved not in self.VALID_AGG_METHODS:
                         raise ValueError(
                             f"Invalid aggregation method '{methods}' for column '{col}'. "
-                            f"Valid methods are: {', '.join(self.VALID_AGG_METHODS)}"
+                            f"Valid methods are: {', '.join(self.VALID_AGG_METHODS)}\n"
+                            f"Aliases: {', '.join(sorted(self.AGG_METHOD_ALIASES.keys()))}"
                         )
+                    resolved_dict[col] = resolved
+                    if methods != resolved:
+                        column_mapping[f"{col}_{resolved}"] = f"{col}_{methods}"
                 elif isinstance(methods, list):
+                    resolved_col_list = []
                     for method in methods:
-                        if isinstance(method, str) and method not in self.VALID_AGG_METHODS:
-                            raise ValueError(
-                                f"Invalid aggregation method '{method}' for column '{col}'. "
-                                f"Valid methods are: {', '.join(self.VALID_AGG_METHODS)}"
-                            )
-            return agg_method
+                        if isinstance(method, str):
+                            resolved = self._resolve_agg_alias(method)
+                            if resolved not in self.VALID_AGG_METHODS:
+                                raise ValueError(
+                                    f"Invalid aggregation method '{method}' for column '{col}'. "
+                                    f"Valid methods are: {', '.join(self.VALID_AGG_METHODS)}\n"
+                                    f"Aliases: {', '.join(sorted(self.AGG_METHOD_ALIASES.keys()))}"
+                                )
+                            resolved_col_list.append(resolved)
+                            if method != resolved:
+                                column_mapping[f"{col}_{resolved}"] = f"{col}_{method}"
+                        else:
+                            resolved_col_list.append(method)
+                    resolved_dict[col] = resolved_col_list
+                else:
+                    resolved_dict[col] = methods
+            return resolved_dict, column_mapping
         
         raise TypeError(
             "agg_method must be str, list of str, or dict, "
@@ -174,7 +253,7 @@ class TimeSeriesResampler:
     ) -> pd.DataFrame:
         df_prepared = self._validate_and_prepare(df)
         parsed_freq = self._parse_freq(freq)
-        agg_funcs = self._get_agg_funcs(agg_method)
+        agg_funcs, column_mapping = self._get_agg_funcs(agg_method)
 
         original_tz = df_prepared.index.tz
 
@@ -206,6 +285,23 @@ class TimeSeriesResampler:
 
         if isinstance(result.columns, pd.MultiIndex):
             result.columns = ['_'.join(col).strip() for col in result.columns.values]
+
+        if column_mapping:
+            new_columns = []
+            for col in result.columns:
+                if col in column_mapping:
+                    new_columns.append(column_mapping[col])
+                else:
+                    found = False
+                    for old_suffix, new_suffix in column_mapping.items():
+                        if col.endswith(f'_{old_suffix}'):
+                            base = col[:-len(f'_{old_suffix}')]
+                            new_columns.append(f'{base}_{new_suffix}')
+                            found = True
+                            break
+                    if not found:
+                        new_columns.append(col)
+            result.columns = new_columns
 
         if output_tz is not None:
             result = result.tz_convert(output_tz)
@@ -244,6 +340,78 @@ class TimeSeriesResampler:
     ) -> pd.DataFrame:
         freq = f"{days}D"
         return self.resample(df, freq, agg_method, fill_method, **kwargs)
+
+    def resample_mean(
+        self,
+        df: pd.DataFrame,
+        freq: Union[str, int],
+        fill_method: Optional[str] = None,
+        **kwargs
+    ) -> pd.DataFrame:
+        return self.resample(df, freq, agg_method='mean', fill_method=fill_method, **kwargs)
+
+    def resample_sum(
+        self,
+        df: pd.DataFrame,
+        freq: Union[str, int],
+        fill_method: Optional[str] = None,
+        **kwargs
+    ) -> pd.DataFrame:
+        return self.resample(df, freq, agg_method='sum', fill_method=fill_method, **kwargs)
+
+    def resample_max(
+        self,
+        df: pd.DataFrame,
+        freq: Union[str, int],
+        fill_method: Optional[str] = None,
+        **kwargs
+    ) -> pd.DataFrame:
+        return self.resample(df, freq, agg_method='max', fill_method=fill_method, **kwargs)
+
+    def resample_min(
+        self,
+        df: pd.DataFrame,
+        freq: Union[str, int],
+        fill_method: Optional[str] = None,
+        **kwargs
+    ) -> pd.DataFrame:
+        return self.resample(df, freq, agg_method='min', fill_method=fill_method, **kwargs)
+
+    def resample_std(
+        self,
+        df: pd.DataFrame,
+        freq: Union[str, int],
+        fill_method: Optional[str] = None,
+        **kwargs
+    ) -> pd.DataFrame:
+        return self.resample(df, freq, agg_method='std', fill_method=fill_method, **kwargs)
+
+    def resample_median(
+        self,
+        df: pd.DataFrame,
+        freq: Union[str, int],
+        fill_method: Optional[str] = None,
+        **kwargs
+    ) -> pd.DataFrame:
+        return self.resample(df, freq, agg_method='median', fill_method=fill_method, **kwargs)
+
+    def resample_count(
+        self,
+        df: pd.DataFrame,
+        freq: Union[str, int],
+        fill_method: Optional[str] = None,
+        **kwargs
+    ) -> pd.DataFrame:
+        return self.resample(df, freq, agg_method='count', fill_method=fill_method, **kwargs)
+
+    def resample_ohlc(
+        self,
+        df: pd.DataFrame,
+        freq: Union[str, int],
+        fill_method: Optional[str] = None,
+        **kwargs
+    ) -> pd.DataFrame:
+        return self.resample(df, freq, agg_method='ohlc', fill_method=fill_method, **kwargs)
 
     def batch_resample(
         self,

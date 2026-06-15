@@ -278,6 +278,121 @@ def example_with_timezone():
     print(result_utc)
 
 
+def example_convenience_agg_methods():
+    print("\n" + "=" * 60)
+    print("示例 11: 使用便捷聚合方法 (mean/sum/max/min)")
+    print("=" * 60)
+
+    df = generate_sample_data(
+        start_time='2024-01-01 00:00:00',
+        periods=600,
+        freq='s',
+        columns=['sales', 'visitors'],
+        seed=555
+    )
+
+    resampler = TimeSeriesResampler()
+
+    print(f"\n原始秒级数据量: {len(df)} 行")
+
+    df_mean = resampler.resample_mean(df, freq='1min')
+    print("\n1分钟均值聚合 (resample_mean):")
+    print(df_mean.head())
+
+    df_sum = resampler.resample_sum(df, freq='1min')
+    print("\n1分钟总和聚合 (resample_sum):")
+    print(df_sum.head())
+
+    df_max = resampler.resample_max(df, freq='1min')
+    print("\n1分钟最大值聚合 (resample_max):")
+    print(df_max.head())
+
+    df_min = resampler.resample_min(df, freq='1min')
+    print("\n1分钟最小值聚合 (resample_min):")
+    print(df_min.head())
+
+    df_std = resampler.resample_std(df, freq='1min')
+    print("\n1分钟标准差聚合 (resample_std):")
+    print(df_std.head())
+
+    df_median = resampler.resample_median(df, freq='1min')
+    print("\n1分钟中位数聚合 (resample_median):")
+    print(df_median.head())
+
+
+def example_chinese_aliases():
+    print("\n" + "=" * 60)
+    print("示例 12: 使用中文聚合方法别名")
+    print("=" * 60)
+
+    df = pd.DataFrame({
+        'temperature': [20, 21, 23, 25, 24, 22, 20, 19, 18, 20],
+        'humidity': [50, 52, 55, 58, 57, 54, 51, 49, 48, 50]
+    }, index=pd.date_range('2024-01-01 00:00:00', periods=10, freq='s'))
+
+    resampler = TimeSeriesResampler()
+
+    print("\n原始秒级数据:")
+    print(df)
+
+    result_mean = resampler.resample(df, freq='5s', agg_method='均值')
+    print("\n5秒均值聚合 (agg_method='均值'):")
+    print(result_mean)
+
+    result_sum = resampler.resample(df, freq='5s', agg_method='总和')
+    print("\n5秒总和聚合 (agg_method='总和'):")
+    print(result_sum)
+
+    result_max = resampler.resample(df, freq='5s', agg_method='最大值')
+    print("\n5秒最大值聚合 (agg_method='最大值'):")
+    print(result_max)
+
+    result_min = resampler.resample(df, freq='5s', agg_method='最小值')
+    print("\n5秒最小值聚合 (agg_method='最小值'):")
+    print(result_min)
+
+    result_multi = resampler.resample(df, freq='5s', agg_method=['均值', '最大值', '最小值'])
+    print("\n5秒多指标聚合 (agg_method=['均值', '最大值', '最小值']):")
+    print(result_multi)
+
+
+def example_agg_method_comparison():
+    print("\n" + "=" * 60)
+    print("示例 13: 不同聚合方法对比")
+    print("=" * 60)
+
+    df = generate_sample_data(
+        start_time='2024-01-01 00:00:00',
+        periods=300,
+        freq='s',
+        columns=['value'],
+        seed=666
+    )
+
+    resampler = TimeSeriesResampler()
+
+    agg_methods = ['mean', 'sum', 'max', 'min', 'std', 'median']
+    chinese_names = ['均值', '总和', '最大值', '最小值', '标准差', '中位数']
+
+    print(f"\n原始秒级数据统计:")
+    print(f"  均值: {df['value'].mean():.2f}")
+    print(f"  总和: {df['value'].sum():.2f}")
+    print(f"  最大值: {df['value'].max():.2f}")
+    print(f"  最小值: {df['value'].min():.2f}")
+
+    print("\n1分钟聚合结果对比:")
+    for method, name in zip(agg_methods, chinese_names):
+        result = resampler.resample(df, freq='1min', agg_method=method)
+        print(f"  {name} ({method}): {result['value'].iloc[0]:.2f}")
+
+    agg_dict = {
+        'value': ['mean', 'sum', 'max', 'min', 'std', 'median']
+    }
+    result_all = resampler.resample(df, freq='1min', agg_method=agg_dict)
+    print("\n1分钟所有指标聚合结果:")
+    print(result_all)
+
+
 def main():
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', 120)
@@ -292,6 +407,9 @@ def main():
     example_batch_resample()
     example_resample_pipeline()
     example_with_timezone()
+    example_convenience_agg_methods()
+    example_chinese_aliases()
+    example_agg_method_comparison()
 
     print("\n" + "=" * 60)
     print("所有示例运行完成!")

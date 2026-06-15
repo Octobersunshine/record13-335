@@ -73,8 +73,12 @@ class TestTimeSeriesResampler(unittest.TestCase):
             self.resampler._parse_freq(-1)
 
     def test_get_agg_funcs_string(self):
-        self.assertEqual(self.resampler._get_agg_funcs('mean'), 'mean')
-        self.assertEqual(self.resampler._get_agg_funcs('sum'), 'sum')
+        result, mapping = self.resampler._get_agg_funcs('mean')
+        self.assertEqual(result, 'mean')
+        self.assertEqual(mapping, {})
+        result2, mapping2 = self.resampler._get_agg_funcs('sum')
+        self.assertEqual(result2, 'sum')
+        self.assertEqual(mapping2, {})
 
     def test_get_agg_funcs_invalid_string(self):
         with self.assertRaises(ValueError) as ctx:
@@ -83,7 +87,15 @@ class TestTimeSeriesResampler(unittest.TestCase):
 
     def test_get_agg_funcs_list(self):
         methods = ['mean', 'sum', 'max']
-        self.assertEqual(self.resampler._get_agg_funcs(methods), methods)
+        result, mapping = self.resampler._get_agg_funcs(methods)
+        self.assertEqual(result, methods)
+        self.assertEqual(mapping, {})
+
+    def test_get_agg_funcs_list_with_aliases(self):
+        methods = ['均值', '总和', '最大值']
+        result, mapping = self.resampler._get_agg_funcs(methods)
+        self.assertEqual(result, ['mean', 'sum', 'max'])
+        self.assertEqual(mapping, {'mean': '均值', 'sum': '总和', 'max': '最大值'})
 
     def test_get_agg_funcs_dict(self):
         agg_dict = {
@@ -91,7 +103,30 @@ class TestTimeSeriesResampler(unittest.TestCase):
             'humidity': ['max', 'min'],
             'pressure': 'sum'
         }
-        self.assertEqual(self.resampler._get_agg_funcs(agg_dict), agg_dict)
+        result, mapping = self.resampler._get_agg_funcs(agg_dict)
+        self.assertEqual(result, agg_dict)
+        self.assertEqual(mapping, {})
+
+    def test_get_agg_funcs_dict_with_aliases(self):
+        agg_dict = {
+            'temperature': '均值',
+            'humidity': ['最大值', '最小值'],
+            'pressure': '总和'
+        }
+        result, mapping = self.resampler._get_agg_funcs(agg_dict)
+        expected_result = {
+            'temperature': 'mean',
+            'humidity': ['max', 'min'],
+            'pressure': 'sum'
+        }
+        expected_mapping = {
+            'temperature_mean': 'temperature_均值',
+            'humidity_max': 'humidity_最大值',
+            'humidity_min': 'humidity_最小值',
+            'pressure_sum': 'pressure_总和'
+        }
+        self.assertEqual(result, expected_result)
+        self.assertEqual(mapping, expected_mapping)
 
     def test_resample_second_to_minute(self):
         result = self.resampler.resample(self.df_1h_second, freq='min', agg_method='mean')
@@ -384,6 +419,157 @@ class TestTimeSeriesResampler(unittest.TestCase):
         result = self.resampler.resample(df_gap, freq='30s', agg_method='count')
         self.assertEqual(result['value1'].iloc[0], 20)
         self.assertEqual(result['value1'].iloc[1], 30)
+
+    def test_convenience_resample_methods(self):
+        df = pd.DataFrame({
+            'value': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        }, index=pd.date_range('2024-01-01', periods=10, freq='s'))
+
+        result_mean = self.resampler.resample_mean(df, freq='5s')
+        self.assertEqual(result_mean['value'].iloc[0], 3.0)
+        self.assertEqual(result_mean['value'].iloc[1], 8.0)
+
+        result_sum = self.resampler.resample_sum(df, freq='5s')
+        self.assertEqual(result_sum['value'].iloc[0], 15)
+        self.assertEqual(result_sum['value'].iloc[1], 40)
+
+        result_max = self.resampler.resample_max(df, freq='5s')
+        self.assertEqual(result_max['value'].iloc[0], 5)
+        self.assertEqual(result_max['value'].iloc[1], 10)
+
+        result_min = self.resampler.resample_min(df, freq='5s')
+        self.assertEqual(result_min['value'].iloc[0], 1)
+        self.assertEqual(result_min['value'].iloc[1], 6)
+
+        result_std = self.resampler.resample_std(df, freq='5s')
+        self.assertAlmostEqual(result_std['value'].iloc[0], 1.5811, places=3)
+
+        result_median = self.resampler.resample_median(df, freq='5s')
+        self.assertEqual(result_median['value'].iloc[0], 3.0)
+        self.assertEqual(result_median['value'].iloc[1], 8.0)
+
+        result_count = self.resampler.resample_count(df, freq='5s')
+        self.assertEqual(result_count['value'].iloc[0], 5)
+        self.assertEqual(result_count['value'].iloc[1], 5)
+
+    def test_agg_method_chinese_aliases(self):
+        df = pd.DataFrame({
+            'value': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        }, index=pd.date_range('2024-01-01', periods=10, freq='s'))
+
+        result_mean = self.resampler.resample(df, freq='5s', agg_method='均值')
+        self.assertEqual(result_mean['value'].iloc[0], 3.0)
+
+        result_mean2 = self.resampler.resample(df, freq='5s', agg_method='平均值')
+        self.assertEqual(result_mean2['value'].iloc[0], 3.0)
+
+        result_sum = self.resampler.resample(df, freq='5s', agg_method='总和')
+        self.assertEqual(result_sum['value'].iloc[0], 15)
+
+        result_sum2 = self.resampler.resample(df, freq='5s', agg_method='累计')
+        self.assertEqual(result_sum2['value'].iloc[0], 15)
+
+        result_max = self.resampler.resample(df, freq='5s', agg_method='最大值')
+        self.assertEqual(result_max['value'].iloc[0], 5)
+
+        result_max2 = self.resampler.resample(df, freq='5s', agg_method='最高')
+        self.assertEqual(result_max2['value'].iloc[0], 5)
+
+        result_min = self.resampler.resample(df, freq='5s', agg_method='最小值')
+        self.assertEqual(result_min['value'].iloc[0], 1)
+
+        result_min2 = self.resampler.resample(df, freq='5s', agg_method='最低')
+        self.assertEqual(result_min2['value'].iloc[0], 1)
+
+    def test_agg_method_english_aliases(self):
+        df = pd.DataFrame({
+            'value': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        }, index=pd.date_range('2024-01-01', periods=10, freq='s'))
+
+        result_avg = self.resampler.resample(df, freq='5s', agg_method='avg')
+        self.assertEqual(result_avg['value'].iloc[0], 3.0)
+
+        result_average = self.resampler.resample(df, freq='5s', agg_method='average')
+        self.assertEqual(result_average['value'].iloc[0], 3.0)
+
+        result_total = self.resampler.resample(df, freq='5s', agg_method='total')
+        self.assertEqual(result_total['value'].iloc[0], 15)
+
+        result_maximum = self.resampler.resample(df, freq='5s', agg_method='maximum')
+        self.assertEqual(result_maximum['value'].iloc[0], 5)
+
+        result_minimum = self.resampler.resample(df, freq='5s', agg_method='minimum')
+        self.assertEqual(result_minimum['value'].iloc[0], 1)
+
+    def test_agg_method_aliases_in_list(self):
+        df = pd.DataFrame({
+            'value': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        }, index=pd.date_range('2024-01-01', periods=10, freq='s'))
+
+        result = self.resampler.resample(df, freq='5s', agg_method=['均值', '总和', '最大值', '最小值'])
+        self.assertEqual(list(result.columns), ['value_均值', 'value_总和', 'value_最大值', 'value_最小值'])
+        self.assertEqual(result['value_均值'].iloc[0], 3.0)
+        self.assertEqual(result['value_总和'].iloc[0], 15)
+        self.assertEqual(result['value_最大值'].iloc[0], 5)
+        self.assertEqual(result['value_最小值'].iloc[0], 1)
+
+    def test_agg_method_aliases_in_dict(self):
+        df = pd.DataFrame({
+            'price': [10, 20, 30, 40, 50],
+            'volume': [100, 200, 300, 400, 500]
+        }, index=pd.date_range('2024-01-01', periods=5, freq='s'))
+
+        agg_dict = {
+            'price': '均值',
+            'volume': '总和'
+        }
+        result = self.resampler.resample(df, freq='5s', agg_method=agg_dict)
+        self.assertEqual(list(result.columns), ['price', 'volume'])
+        self.assertEqual(result['price'].iloc[0], 30.0)
+        self.assertEqual(result['volume'].iloc[0], 1500)
+
+        agg_dict_multi = {
+            'price': ['均值', '总和'],
+            'volume': ['最大值', '最小值']
+        }
+        result_multi = self.resampler.resample(df, freq='5s', agg_method=agg_dict_multi)
+        self.assertEqual(list(result_multi.columns), ['price_均值', 'price_总和', 'volume_最大值', 'volume_最小值'])
+        self.assertEqual(result_multi['price_均值'].iloc[0], 30.0)
+        self.assertEqual(result_multi['price_总和'].iloc[0], 150)
+
+    def test_convenience_methods_with_fill(self):
+        df = pd.DataFrame({
+            'value': [1, 2, 3, 7, 8, 9]
+        }, index=pd.DatetimeIndex([
+            '2024-01-01 00:00:00',
+            '2024-01-01 00:00:01',
+            '2024-01-01 00:00:02',
+            '2024-01-01 00:00:05',
+            '2024-01-01 00:00:06',
+            '2024-01-01 00:00:07'
+        ]))
+
+        result_mean = self.resampler.resample_mean(df, freq='2s', fill_method='ffill')
+        self.assertFalse(result_mean.isnull().any().any())
+        self.assertEqual(len(result_mean), 4)
+
+    def test_convenience_ohlc_method(self):
+        df = pd.DataFrame({
+            'price': [10, 12, 8, 15, 11, 14, 9, 13]
+        }, index=pd.date_range('2024-01-01', periods=8, freq='s'))
+
+        result_ohlc = self.resampler.resample_ohlc(df, freq='4s')
+        self.assertEqual(len(result_ohlc), 2)
+        expected_cols = ['price_open', 'price_high', 'price_low', 'price_close']
+        self.assertEqual(list(result_ohlc.columns), expected_cols)
+        self.assertEqual(result_ohlc['price_open'].iloc[0], 10)
+        self.assertEqual(result_ohlc['price_high'].iloc[0], 15)
+        self.assertEqual(result_ohlc['price_low'].iloc[0], 8)
+        self.assertEqual(result_ohlc['price_close'].iloc[0], 15)
+        self.assertEqual(result_ohlc['price_open'].iloc[1], 11)
+        self.assertEqual(result_ohlc['price_high'].iloc[1], 14)
+        self.assertEqual(result_ohlc['price_low'].iloc[1], 9)
+        self.assertEqual(result_ohlc['price_close'].iloc[1], 13)
 
 
 if __name__ == '__main__':
