@@ -90,8 +90,6 @@ class TimeSeriesResampler:
         if self.timezone:
             if df.index.tz is None:
                 df.index = df.index.tz_localize(self.timezone)
-            else:
-                df.index = df.index.tz_convert(self.timezone)
 
         return df
 
@@ -178,7 +176,19 @@ class TimeSeriesResampler:
         parsed_freq = self._parse_freq(freq)
         agg_funcs = self._get_agg_funcs(agg_method)
 
-        resampler = df_prepared.resample(parsed_freq, **kwargs)
+        original_tz = df_prepared.index.tz
+
+        if self.timezone is not None:
+            output_tz = self.timezone
+        else:
+            output_tz = original_tz
+
+        if original_tz is not None:
+            df_for_agg = df_prepared.tz_convert('UTC')
+        else:
+            df_for_agg = df_prepared
+
+        resampler = df_for_agg.resample(parsed_freq, **kwargs)
         result = resampler.agg(agg_funcs)
 
         if fill_method is not None:
@@ -196,6 +206,9 @@ class TimeSeriesResampler:
 
         if isinstance(result.columns, pd.MultiIndex):
             result.columns = ['_'.join(col).strip() for col in result.columns.values]
+
+        if output_tz is not None:
+            result = result.tz_convert(output_tz)
 
         return result
 

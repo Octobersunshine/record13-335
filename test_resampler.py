@@ -270,6 +270,92 @@ class TestTimeSeriesResampler(unittest.TestCase):
         tz_name = str(result.index.tz)
         self.assertIn('UTC', tz_name)
 
+    def test_timezone_aggregation_to_utc(self):
+        times_utc = pd.date_range(
+            start='2024-03-10 07:00:00',
+            periods=6,
+            freq='h',
+            tz='UTC'
+        )
+        df = pd.DataFrame({'value': [10, 20, 30, 40, 50, 60]}, index=times_utc)
+
+        resampler = TimeSeriesResampler(timezone='America/New_York')
+        result = resampler.resample(df, freq='D', agg_method='sum')
+
+        self.assertEqual(result['value'].iloc[0], 210)
+        self.assertIsNotNone(result.index.tz)
+        tz_name = str(result.index.tz)
+        self.assertIn('New_York', tz_name)
+
+    def test_timezone_dst_switch(self):
+        times_utc = pd.date_range(
+            start='2024-03-10 06:00:00',
+            periods=4,
+            freq='h',
+            tz='UTC'
+        )
+        df = pd.DataFrame({'value': [1, 2, 3, 4]}, index=times_utc)
+
+        resampler = TimeSeriesResampler(timezone='America/New_York')
+        result = resampler.resample(df, freq='h', agg_method='sum')
+
+        self.assertEqual(len(result), 4)
+        self.assertEqual(result['value'].sum(), 10)
+
+    def test_timezone_cross_boundary(self):
+        times_utc = pd.date_range(
+            start='2024-01-01 22:00:00',
+            periods=13,
+            freq='h',
+            tz='UTC'
+        )
+        df = pd.DataFrame({'value': [1] * 13}, index=times_utc)
+
+        resampler = TimeSeriesResampler(timezone='Asia/Shanghai')
+        result = resampler.resample(df, freq='D', agg_method='sum')
+
+        self.assertEqual(result['value'].sum(), 13)
+
+        result_utc = resampler.resample(df, freq='D', agg_method='sum')
+        self.assertEqual(len(result_utc), 2)
+
+    def test_timezone_localize_and_convert(self):
+        times_naive = pd.date_range(
+            start='2024-01-01 10:00:00',
+            periods=24,
+            freq='h'
+        )
+        df = pd.DataFrame({'value': range(24)}, index=times_naive)
+
+        resampler = TimeSeriesResampler(timezone='Asia/Shanghai')
+        result = resampler.resample(df, freq='D', agg_method='sum')
+
+        self.assertIsNotNone(result.index.tz)
+        tz_name = str(result.index.tz)
+        self.assertIn('Shanghai', tz_name)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result['value'].sum(), 276)
+        self.assertEqual(result['value'].iloc[0], 231)
+        self.assertEqual(result['value'].iloc[1], 45)
+
+    def test_timezone_convert_to_utc_aggregation_correctness(self):
+        times_utc = pd.date_range(
+            start='2024-01-01 00:00:00',
+            periods=48,
+            freq='h',
+            tz='UTC'
+        )
+        df = pd.DataFrame({'value': range(48)}, index=times_utc)
+
+        resampler_utc = TimeSeriesResampler(timezone='UTC')
+        result_utc = resampler_utc.resample(df, freq='D', agg_method='sum')
+
+        resampler_sh = TimeSeriesResampler(timezone='Asia/Shanghai')
+        result_sh = resampler_sh.resample(df, freq='D', agg_method='sum')
+
+        self.assertEqual(result_utc['value'].sum(), result_sh['value'].sum())
+        self.assertEqual(result_utc['value'].sum(), 1128)
+
     def test_resample_aggregation_correctness(self):
         df = pd.DataFrame({
             'value': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
